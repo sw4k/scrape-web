@@ -25,6 +25,8 @@ Options:
                 *MULTI* When scraping URLs, if this substring matches a URL the URL will be ignored/skipped.
         --save <substring>
                 *MULTI* When scraping URLs, if this substring matches the URL the content found at the URL will be downloaded and saved locally. 
+        --save-all
+            Indicates that all content scraped should be saved. This may still require the use of `--element` and `--preserve-paths` to exhibit the expected results.
         --out-dir <path>
                 When used in conjuction with `--save` this specifies where files will be saved, by default they are saved to 'saves/`. This may be a relative or absolute path.
         --preserve-paths
