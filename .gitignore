@@ -1,0 +1,9 @@
+bin/
+obj/
+saves/
+install/scrape-web
+*.o
+*.c
+*.gz
+*.sig
+*.gpg
