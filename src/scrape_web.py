@@ -32,7 +32,7 @@ class log:
     INF = '\033[250m'
     WRN = '\033[93m'
     ERR = '\033[91m'
-    OK = '\033[34m'
+    OK = '\033[36m'
     SUCCESS = '\033[32m'
     END = '\033[0m'
     BLD = '\033[1m'
@@ -68,6 +68,7 @@ def try_save(url):
                 filepath = f"{runspace.save_directory}/{filepath}"                
             if (os.path.isfile(filepath)):
                 log.warn(f"### {filepath}")
+                return "skip", "skip"
             else:
                 attempts_remaining = runspace.max_connection_errors
                 while (True):
@@ -78,19 +79,21 @@ def try_save(url):
                     except (Exception):
                         if (attempts_remaining <= 0):
                             log.error(f"XXX failed: {url}")
-                            return True
+                            return None, None
                         else:
                             log.warn(f"..ConnectionError; retrying in {runspace.retry_wait_seconds} seconds")
                             time.sleep(runspace.retry_wait_seconds)
                 if (resp.status_code == 200):
-                        with open(filepath, "wb") as f:
-                            f.write(resp.content)
-                            f.flush()
-                        log.success(f"### {filepath}")
+                    contentType = resp.headers["Content-Type"]
+                    content = resp.content
+                    with open(filepath, "wb") as f:
+                        f.write(content)
+                        f.flush()
+                    log.success(f"### {filepath}")
+                    return contentType, content
                 else:
                     log.error(f"do_save('{url}') failed with status_code {resp.status_code}")
-            return True
-    return False
+    return None, None
 
 def add_to_pending(url, force = False):
     if (not force):
@@ -101,33 +104,41 @@ def add_to_pending(url, force = False):
         for item in runspace.scraped_urls:
             if (item == url):
                 return
-    if (not try_save(url)):
-        for item in runspace.pending_urls:
-            if (item == url):
-                return
-        log.info(f"+++ add to pending {url}")
-        runspace.pending_urls.append(url)
+    for item in runspace.pending_urls:
+        if (item == url):
+            return
+    log.info(f"+++ add to pending {url}")
+    runspace.pending_urls.append(url)
 
 def scrape(url):
-    log.ok(f">>> {url}")
-    attempts_remaining = runspace.max_connection_errors
-    while (True):
-        attempts_remaining -= 1
-        try:
-            resp = requests.get(url)
-            break
-        except (Exception):
-            if (attempts_remaining <= 0):
-                log.error(f"XXX failed: {url}")
-                return
-            else:
-                log.warn(f"..ConnectionError; retrying in {runspace.retry_wait_seconds} seconds")
-                time.sleep(runspace.retry_wait_seconds)
-    contentType = resp.headers["Content-Type"]
-    if (contentType.index("text/html") < 0 and contentType.index("+xml") < 0 and contentType.index("/xml")):
-        # do not parse non-textual content, this does require the server to respond with correct content types
-        log.warn(f"!!! unsupported Content-Type: {contentType}")
+    runspace.scraped_urls.append(url)
+    runspace.pending_urls.remove(url)
+    contentType, content = try_save(url)
+    if (contentType == "skip" and content == "skip"):
         return
+    if (contentType == None or content == None):
+        attempts_remaining = runspace.max_connection_errors
+        while (True):
+            attempts_remaining -= 1
+            try:
+                resp = requests.get(url)
+                break
+            except (Exception):
+                if (attempts_remaining <= 0):
+                    log.error(f"XXX failed: {url}")
+                    return
+                else:
+                    log.warn(f"..ConnectionError; retrying in {runspace.retry_wait_seconds} seconds")
+                    time.sleep(runspace.retry_wait_seconds)
+        contentType = resp.headers["Content-Type"]
+        content = resp.content
+        if (contentType == None):
+            log.warn(f"!!! missing content-type for: {url}")
+            return
+    if (contentType.find("text/html") < 0 and contentType.find("+xml") < 0 and contentType.find("/xml")):
+        # do not parse non-textual content, this does require the server to respond with correct content types
+        return
+    log.ok(f">>> {url}")
     html = BeautifulSoup(resp.content, "lxml")
     for element_info in runspace.include_elements:
         element_parts = element_info.split(":")
@@ -146,8 +157,6 @@ def scrape(url):
                 log.error(f"!!! scraped bad URL `{value}` from element `{element_info}` at `{url}`, discarded.")
             else:
                 add_to_pending(value)
-    runspace.scraped_urls.append(url)
-    runspace.pending_urls.remove(url)
 
 def print_help():
     log.info("scrape-web v0.2.0\nCopyright (C) sw4k, MIT Licensed\n")
