@@ -29,6 +29,8 @@ Options:
                 When used in conjuction with `--save` this specifies where files will be saved, by default they are saved to 'saves/`. This may be a relative or absolute path.
         --preserve-paths
                 Indicates that server paths should be appended to local paths whens saving, by default server paths are discarded.
+        --element <name:attr>
+                *MULTI* When scraping URLs, include urls represented by elements named `name` with URLs come from `attr`; the colon is a separator of `name` and `attr`.
 
 NOTE: Options with '*MULTI*' in the description may be specified more than once.
 ```

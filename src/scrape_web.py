@@ -16,6 +16,7 @@ from bs4 import BeautifulSoup
 
 class runspace:
     ignore_urls = []
+    include_elements = ["a:href"]
     max_connection_errors = 3
     max_count = 2147483647
     pending_urls = []
@@ -74,7 +75,7 @@ def try_save(url):
                     try:
                         resp = requests.get(url)
                         break
-                    except ConnectionError:
+                    except (Exception):
                         if (attempts_remaining <= 0):
                             log.error(f"XXX failed: {url}")
                             return True
@@ -115,34 +116,41 @@ def scrape(url):
         try:
             resp = requests.get(url)
             break
-        except ConnectionError:
+        except (Exception):
             if (attempts_remaining <= 0):
                 log.error(f"XXX failed: {url}")
                 return
             else:
                 log.warn(f"..ConnectionError; retrying in {runspace.retry_wait_seconds} seconds")
                 time.sleep(runspace.retry_wait_seconds)
+    contentType = resp.headers["Content-Type"]
+    if (contentType.index("text/html") < 0 and contentType.index("+xml") < 0 and contentType.index("/xml")):
+        # do not parse non-textual content, this does require the server to respond with correct content types
+        log.warn(f"!!! unsupported Content-Type: {contentType}")
+        return
     html = BeautifulSoup(resp.content, "lxml")
-    for anchor in html.find_all('a'):
-        href = anchor.get("href")
-        if (href == None):
-            continue
-        if (not href.startswith('http')):
-            url_parsed = urlparse(url)
-            base_uri = f"{url_parsed.scheme}://{url_parsed.netloc}"
-            if (href.startswith('/')):
-                href = f"{base_uri}{href}"
-            elif (href.endswith('.html') or href.endswith('.htm')):
-                href = f"{base_uri}/{href}"
-        if (not href.startswith('http')):
-            log.error(f"!!! scraped bad href '{href}' from '{url}', discarded.")
-        else:
-            add_to_pending(href)
+    for element_info in runspace.include_elements:
+        element_parts = element_info.split(":")
+        for ele in html.find_all(element_parts[0]):
+            value = ele.get(element_parts[1])
+            if (value == None):
+                continue
+            if (not value.startswith('http')):
+                url_parsed = urlparse(url)
+                base_uri = f"{url_parsed.scheme}://{url_parsed.netloc}"
+                if (value.startswith('/')):
+                    value = f"{base_uri}{value}"
+                elif (value.endswith('.html') or value.endswith('.htm')):
+                    value = f"{base_uri}/{value}"
+            if (not value.startswith('http')):
+                log.error(f"!!! scraped bad URL `{value}` from element `{element_info}` at `{url}`, discarded.")
+            else:
+                add_to_pending(value)
     runspace.scraped_urls.append(url)
     runspace.pending_urls.remove(url)
 
 def print_help():
-    log.info("scrape-web v0.1.0\nCopyright (C) sw4k, MIT Licensed\n")
+    log.info("scrape-web v0.2.0\nCopyright (C) sw4k, MIT Licensed\n")
     log.info("Usage:")
     log.info("\tscrape_web [options] --url <string>\n")
     log.info("Options:")
@@ -154,6 +162,7 @@ def print_help():
     log.info("\t--preserve-paths\n\t\tIndicates that server paths should be appended to local paths whens saving, by default server paths are discarded.")
     log.info(f"\t--max-connection-errors <number>\n\t\tSets the maximum number of retries that will be performed for a single scrape attempts before giving up. The default is {runspace.max_connection_errors}.")
     log.info(f"\t--retry-wait-seconds <number>\n\t\tSets the number of seconds to wait when there is a connection error before a retry attempt is made. The default is {runspace.retry_wait_seconds}.")
+    log.info("\t--element <name:attr>\n\t\t*MULTI* When scraping URLs, include urls represented by elements named `name` with URLs come from `attr`; the colon is a separator of `name` and `attr`.")
     log.info("\nNOTE: Options with '*MULTI*' in the description may be specified more than once.")
 
 def parse_commandline():
@@ -163,61 +172,73 @@ def parse_commandline():
     for argi in range(1, len(args)):
         arg = args[argi]
         if (arg == "--url"):
-                argi += 1
-                if (argi >= argc):
-                    print_help()
-                    log.error(f"ERR(2): missing required parameter for `--url <string>`")
-                    return 2
-                url = args[argi]
-        elif (arg == "--max-count"):
-                argi += 1
-                if (argi >= argc):
-                    print_help()
-                    log.error(f"ERR(2): missing required parameter for `--max-count <number>`")
-                    return 2
-                runspace.max_count = int(args[argi])
-        elif (arg == "--ignore"):
-                argi += 1
-                if (argi >= argc):
-                    print_help()
-                    log.error(f"ERR(2): missing required parameter for `--ignore <substring>`")
-                    return 2
-                runspace.ignore_urls.append(args[argi])
-        elif (arg == "--save"):
-                argi += 1
-                if (argi >= argc):
-                    print_help()
-                    log.error(f"ERR(2): missing required parameter for `--save <substring>`")
-                    return 2
-                runspace.save_urls.append(args[argi])
-        elif (arg == "--verbose"):
-                log.min_level = 0
-        elif (arg == "--out-dir"):
-                argi += 1
-                if (argi >= argc):
-                    print_help()
-                    log.error(f"ERR(2): missing required parameter for `--out-dir <path>`")
-                    return 2
-                runspace.save_directory = args[argi]
-        elif (arg == "--preserve-paths"):
-                runspace.save_with_paths = True
-        elif (arg == "--max-connection-errors"):
-                argi += 1
-                if (argi >= argc):
-                    print_help()
-                    log.error(f"ERR(2): missing required parameter for `--max-connection-errors <number>`")
-                    return 2
-                runspace.max_connection_errors = int(args[argi])
-        elif (arg == "--retry-wait-seconds"):
-                argi += 1
-                if (argi >= argc):
-                    print_help()
-                    log.error(f"ERR(2): missing required parameter for `--retry-wait-seconds <number>`")
-                    return 2
-                runspace.retry_wait_seconds = int(args[argi])
-        elif (arg == "--help"):
+            argi += 1
+            if (argi >= argc):
                 print_help()
-                exit(0)
+                log.error(f"ERR(2): missing required parameter for `--url <string>`")
+                return 2
+            url = args[argi]
+        elif (arg == "--max-count"):
+            argi += 1
+            if (argi >= argc):
+                print_help()
+                log.error(f"ERR(2): missing required parameter for `--max-count <number>`")
+                return 2
+            runspace.max_count = int(args[argi])
+        elif (arg == "--ignore"):
+            argi += 1
+            if (argi >= argc):
+                print_help()
+                log.error(f"ERR(2): missing required parameter for `--ignore <substring>`")
+                return 2
+            runspace.ignore_urls.append(args[argi])
+        elif (arg == "--element"):
+            argi += 1             
+            if (argi >= argc):
+                print_help()
+                log.error(f"ERR(2): missing required parameter for `--ignore <substring>`")
+                return 2
+            ele_parts = args[argi].split(":")
+            if (ele_parts == None or len(ele_parts) != 2):
+                print_help()
+                log.error(f"ERR(2): parameter for `--element <name>:<attr>` is malformed")
+                return 2
+            runspace.include_elements.append(args[argi])
+        elif (arg == "--save"):
+            argi += 1
+            if (argi >= argc):
+                print_help()
+                log.error(f"ERR(2): missing required parameter for `--save <substring>`")
+                return 2
+            runspace.save_urls.append(args[argi])
+        elif (arg == "--verbose"):
+            log.min_level = 0
+        elif (arg == "--out-dir"):
+            argi += 1
+            if (argi >= argc):
+                print_help()
+                log.error(f"ERR(2): missing required parameter for `--out-dir <path>`")
+                return 2
+            runspace.save_directory = args[argi]
+        elif (arg == "--preserve-paths"):
+            runspace.save_with_paths = True
+        elif (arg == "--max-connection-errors"):
+            argi += 1
+            if (argi >= argc):
+                print_help()
+                log.error(f"ERR(2): missing required parameter for `--max-connection-errors <number>`")
+                return 2
+            runspace.max_connection_errors = int(args[argi])
+        elif (arg == "--retry-wait-seconds"):
+            argi += 1
+            if (argi >= argc):
+                print_help()
+                log.error(f"ERR(2): missing required parameter for `--retry-wait-seconds <number>`")
+                return 2
+            runspace.retry_wait_seconds = int(args[argi])
+        elif (arg == "--help"):
+            print_help()
+            exit(0)
     return url
 
 def run():
