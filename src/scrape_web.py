@@ -38,6 +38,13 @@ class log:
     END = '\033[0m'
     BLD = '\033[1m'
     ULN = '\033[4m'
+    SPINNER = ["-", "\\", "|", "/"]
+    SPIN_LEVEL = 0
+    no_status = False
+    def status(msg = ""):
+        if (not log.no_status):
+            log.SPIN_LEVEL = ((log.SPIN_LEVEL + 1) % 4)
+            sys.stdout.write(f"[{log.SPINNER[log.SPIN_LEVEL]}] {msg}\r")
     def ok(msg):
         print(f"{log.OK}{msg}{log.END}")
     def success(msg):
@@ -70,6 +77,7 @@ def try_save(url):
         log.warn(f"### {filepath}")
         return "skip", "skip"
     should_save = runspace.save_all
+    log.status()
     if (not should_save):
         for item in runspace.save_urls:
             if (url.find(item) >= 0):
@@ -102,24 +110,29 @@ def try_save(url):
 
 def add_to_pending(url, force = False):
     if (not force):
+        log.status()
         for ignore in runspace.ignore_urls:
             if (url.find(ignore) >= 0):
                 log.debug(f"!!! ignoring {url}")
                 return
+        log.status()
         for item in runspace.scraped_urls:
             if (item == url):
                 return
+    log.status()
     for item in runspace.pending_urls:
         if (item == url):
             return
-    log.debug(f"+++ add to pending {url}")
+    log.status()
     for item in runspace.save_urls:
         if (url.find(item) >= 0):
             runspace.pending_urls.insert(0, url)
             return
+    log.debug(f"+++ add to pending {url}")
     runspace.pending_urls.append(url)
 
 def scrape(url):
+    log.status()
     runspace.scraped_urls.append(url)
     runspace.pending_urls.remove(url)
     contentType, content = try_save(url)
@@ -148,10 +161,12 @@ def scrape(url):
         # do not parse non-textual content, this does require the server to respond with correct content types
         return
     log.ok(f">>> {url}")
+    log.status()
     html = BeautifulSoup(resp.content, "lxml")
     for element_info in runspace.include_elements:
         element_parts = element_info.split(":")
         for ele in html.find_all(element_parts[0]):
+            log.status()
             value = ele.get(element_parts[1])
             if (value == None):
                 continue
@@ -163,7 +178,10 @@ def scrape(url):
                 elif (value.endswith('.html') or value.endswith('.htm')):
                     value = f"{base_uri}/{value}"
             if (not value.startswith('http')):
-                log.error(f"!!! scraped bad URL `{value}` from element `{element_info}` at `{url}`, discarded.")
+                if (value.startswith("#")):
+                    log.debug(f"!!! scraped bad URL `{value}` from element `{element_info}` at `{url}`, discarded.")
+                else:
+                    log.warn(f"!!! scraped bad URL `{value}` from element `{element_info}` at `{url}`, discarded.")
             else:
                 add_to_pending(value)
 
@@ -172,11 +190,12 @@ def print_help():
     log.info("Usage:")
     log.info("\tscrape_web [options] --url <string>\n")
     log.info("Options:")
+    log.info("\t--verbose\n\t\tIndicates that verbose/debug logging should be enabled.")
+    log.info("\t--no-status\n\t\tDisable status messages, useful if processing stdout with another tool.")
     log.info("\t--max-count <number>\n\t\tSet a max count of scrapes to be performed.")
     log.info("\t--ignore <substring>\n\t\t*MULTI* When scraping URLs, if this substring matches a URL the URL will be ignored/skipped.")
     log.info("\t--save <substring>\n\t\t*MULTI* When scraping URLs, if this substring matches the URL the content found at the URL will be downloaded and saved locally. ")
     log.info("\t--save-all\n\t\tIndicates that all content scraped should be saved. This may still require the use of `--element` and `--preserve-paths` to exhibit the expected results.")
-    log.info("\t--verbose\n\t\tIndicates that verbose/debug logging should be enabled.")
     log.info("\t--out-dir <path>\n\t\tWhen used in conjuction with `--save` this specifies where files will be saved, by default they are saved to 'saves/`. This may be a relative or absolute path.")
     log.info("\t--preserve-paths\n\t\tIndicates that server paths should be appended to local paths whens saving, by default server paths are discarded.")
     log.info(f"\t--max-connection-errors <number>\n\t\tSets the maximum number of retries that will be performed for a single scrape attempts before giving up. The default is {runspace.max_connection_errors}.")
@@ -201,19 +220,19 @@ def print_settings(url):
         for item in runspace.ignore_urls:
             log.info(f"\t{item}")
     else:
-        log.warn("Not ignoring any URLs !BEWARE! you may crawl out of the target website! (use `--verbose` and `--ignore`)")
-    log.info("Scraping URLS from the following elements/attributes (using `--include` to add more):")
+        log.warn(f"Not ignoring any URLs {log.BLD}!BEWARE! you may crawl out of the target website!{log.END} (use `--verbose` and `--ignore`)")
+    log.info("Scraping URLS from the following elements/attributes (use `--include` to add more):")
     for item in runspace.include_elements:
         log.info(f"\t{item}")
     log.info("General Settings:")
     if (runspace.max_count != 2147483647):
         log.info(f"\t--max-count {runspace.max_count}")
-    log.info(f"\t--max-connection-errors {runspace.max_connection_errors}")
-    log.info(f"\t--retry-wait-seconds {runspace.retry_wait_seconds}")
-    log.info(f"\t--save-all {runspace.save_all}")
-    log.info(f"\t--out-dir {runspace.save_directory}")
-    log.info(f"\t--save-with-paths {runspace.save_with_paths}")
-    log.info(f"\t--url {url}")
+    log.info(f"\t--max-connection-errors {log.SUCCESS}{runspace.max_connection_errors}")
+    log.info(f"\t--retry-wait-seconds {log.SUCCESS}{runspace.retry_wait_seconds}")
+    log.info(f"\t--save-all {log.SUCCESS}{runspace.save_all}")
+    log.info(f"\t--out-dir {log.SUCCESS}{runspace.save_directory}")
+    log.info(f"\t--save-with-paths {log.SUCCESS}{runspace.save_with_paths}")
+    log.info(f"\t--url {log.SUCCESS}{url}")
     log.info("======================")
     log.info("======================")
     log.info("======================")
@@ -268,6 +287,8 @@ def parse_commandline():
             runspace.save_all = True
         elif (arg == "--verbose"):
             log.min_level = 0
+        elif (arg == "--no-status"):
+            log.no_status = True
         elif (arg == "--out-dir"):
             argi += 1
             if (argi >= argc):
@@ -306,8 +327,9 @@ def run():
         exit(1)
     print_settings(url)
     for i in reversed(range(1, 6)):
-        log.info(f"..starting in {i}..")
+        sys.stdout.write(f"..starting in {i}..\r")        
         time.sleep(1)
+    print("")
     add_to_pending(url, True)
     while (runspace.max_count > 0 and len(runspace.pending_urls) > 0):
         runspace.max_count -= 1
