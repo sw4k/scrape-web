@@ -260,6 +260,8 @@ def parse_commandline():
         elif (arg == "--help"):
             print_help()
             exit(0)
+        else:
+            log.warn(f"Unrecognized argument: `{args[argi]}`")
     return url
 
 def run():
