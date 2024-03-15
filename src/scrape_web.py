@@ -113,6 +113,10 @@ def add_to_pending(url, force = False):
         if (item == url):
             return
     log.debug(f"+++ add to pending {url}")
+    for item in runspace.save_urls:
+        if (url.find(item) >= 0):
+            runspace.pending_urls.insert(0, url)
+            return
     runspace.pending_urls.append(url)
 
 def scrape(url):
