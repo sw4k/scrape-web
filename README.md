@@ -15,6 +15,8 @@ Usage:
 Options:
         --verbose
                 Indicates that verbose/debug logging should be enabled.
+        --no-status
+                Disable status messages, useful if processing stdout with another tool.
         --max-connection-errors <number>
                 Sets the maximum number of retries that will be performed for a single scrape attempts before giving up. The default is 3.
         --retry-wait-seconds <number>
@@ -37,7 +39,7 @@ Options:
 NOTE: Options with '*MULTI*' in the description may be specified more than once.
 ```
 
-# Dependencies
+## Dependencies
 
 `scrape-web` is a python3 program, you will need `pipenv`, `pip`, and `python3` to run directly from sources:
 
