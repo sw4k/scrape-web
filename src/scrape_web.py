@@ -184,6 +184,40 @@ def print_help():
     log.info("\t--element <name:attr>\n\t\t*MULTI* When scraping URLs, include urls represented by elements named `name` with URLs come from `attr`; the colon is a separator of `name` and `attr`.")
     log.info("\nNOTE: Options with '*MULTI*' in the description may be specified more than once.")
 
+def print_settings(url):
+    log.info("======================")
+    log.info("== Settings Summary ==")
+    log.info("======================")
+    if (runspace.save_all):
+        log.info("Saving all content (using `--save-all`, are you using using `--preserve-paths`?)")
+    elif (len(runspace.save_urls) > 0):
+        log.info("Saving content matching substrings:")
+        for item in runspace.save_urls:
+            log.info(f"\t{item}")
+    else:
+        log.warn("Not Saving any content (use `--save` or `--save-all`)")
+    if (len(runspace.ignore_urls) > 0):
+        log.info("Ignoring URLS matching substrings:")
+        for item in runspace.ignore_urls:
+            log.info(f"\t{item}")
+    else:
+        log.warn("Not ignoring any URLs !BEWARE! you may crawl out of the target website! (use `--verbose` and `--ignore`)")
+    log.info("Scraping URLS from the following elements/attributes (using `--include` to add more):")
+    for item in runspace.include_elements:
+        log.info(f"\t{item}")
+    log.info("General Settings:")
+    if (runspace.max_count != 2147483647):
+        log.info(f"\t--max-count {runspace.max_count}")
+    log.info(f"\t--max-connection-errors {runspace.max_connection_errors}")
+    log.info(f"\t--retry-wait-seconds {runspace.retry_wait_seconds}")
+    log.info(f"\t--save-all {runspace.save_all}")
+    log.info(f"\t--out-dir {runspace.save_directory}")
+    log.info(f"\t--save-with-paths {runspace.save_with_paths}")
+    log.info(f"\t--url {url}")
+    log.info("======================")
+    log.info("======================")
+    log.info("======================")
+
 def parse_commandline():
     url = "about:blank"
     args = sys.argv[0:]
@@ -270,6 +304,10 @@ def run():
         print_help()
         log.error("ERR(1): no url specified")
         exit(1)
+    print_settings(url)
+    for i in reversed(range(1, 6)):
+        log.info(f"..starting in {i}..")
+        time.sleep(1)
     add_to_pending(url, True)
     while (runspace.max_count > 0 and len(runspace.pending_urls) > 0):
         runspace.max_count -= 1
