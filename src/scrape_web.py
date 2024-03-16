@@ -200,7 +200,7 @@ def print_help():
     log.info("\t--preserve-paths\n\t\tIndicates that server paths should be appended to local paths whens saving, by default server paths are discarded.")
     log.info(f"\t--max-connection-errors <number>\n\t\tSets the maximum number of retries that will be performed for a single scrape attempts before giving up. The default is {runspace.max_connection_errors}.")
     log.info(f"\t--retry-wait-seconds <number>\n\t\tSets the number of seconds to wait when there is a connection error before a retry attempt is made. The default is {runspace.retry_wait_seconds}.")
-    log.info("\t--element <name:attr>\n\t\t*MULTI* When scraping URLs, include urls represented by elements named `name` with URLs come from `attr`; the colon is a separator of `name` and `attr`.")
+    log.info("\t--element <name>:<attr>\n\t\t*MULTI* When scraping URLs, include urls represented by elements named `name` with URLs come from `attr`; the colon is a separator of `name` and `attr`.")
     log.info("\nNOTE: Options with '*MULTI*' in the description may be specified more than once.")
 
 def print_settings(url):
@@ -268,7 +268,7 @@ def parse_commandline():
             argi += 1             
             if (argi >= argc):
                 print_help()
-                log.error(f"ERR(2): missing required parameter for `--ignore <substring>`")
+                log.error(f"ERR(2): missing required parameter for `--element <name>:<attr>`")
                 return 2
             ele_parts = args[argi].split(":")
             if (ele_parts == None or len(ele_parts) != 2):
