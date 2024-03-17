@@ -79,7 +79,7 @@ make build
 
 Installation assumes you were able to successfully build following the instructions above, if so there is a `make install` target you can use, you will probably have to run it via `sudo`:
 
-> WARNING: This will install `beautifulsoup4` and 'lxml' modules globally using pip, the cython-compiled binary will not run correctly without this. For most users this will not be a problem because it is not a normal dependency which python3 relies on, but if you depend on a specific global version you may want to edit the install script before continuing.
+> WARNING: This will install `beautifulsoup4` and `lxml` modules globally using pip, the cython-compiled binary will not run correctly without this. For most users this will not be a problem because it is not a normal dependency which python3 relies on, but if you depend on a specific global version you may want to edit the install script before continuing.
 
 ```bash
 sudo make install
@@ -87,7 +87,7 @@ sudo make install
 
 You can also uninstall:
 
-> WARNING: This will uninstall `beautifulsoup4` and 'lxml' globally using pip, since the install script installs it. For most users this will not be a problem, but if you depend on this package globally you may want to edit the uninstall script before continuing.
+> WARNING: This will uninstall `beautifulsoup4` and `lxml` modules globally using pip, since the install script installs it. For most users this will not be a problem, but if you depend on this package globally you may want to edit the uninstall script before continuing.
 
 
 ```bash

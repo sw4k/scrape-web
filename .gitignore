@@ -7,3 +7,5 @@ install/scrape-web
 *.gz
 *.sig
 *.gpg
+*.zip
+

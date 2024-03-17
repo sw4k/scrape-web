@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MIT
+# cython: language_level=3
 #
 # scrape_web.py
 # 
@@ -6,6 +7,7 @@
 # 
 # The `scrape-web` main source file.
 # 
+import bisect
 import os
 from pathlib import Path
 import requests
@@ -15,17 +17,18 @@ from urllib.parse import urlparse, unquote
 from bs4 import BeautifulSoup
 
 class runspace:
-    ignore_urls = []
+    ignore_patterns = []
+    save_patterns = []
     include_elements = ["a:href"]
-    max_connection_errors = 3
-    max_count = 2147483647
-    pending_urls = []
-    retry_wait_seconds = 5
     save_all = False
-    save_urls = []
     save_directory = 'saves'
     save_with_paths = False
-    scraped_urls = []
+    max_connection_errors = 4
+    max_count = 2147483647
+    retry_wait_seconds = 15
+    processed_urls = []
+    pending_save_urls = []
+    pending_scrape_urls = []
 
 class log:
     min_level = 1
@@ -62,7 +65,57 @@ class log:
         if (log.min_level <= 3):
             print(f"{log.ERR}{msg}{log.END}")
 
-def try_save(url):
+def add_pending_url(url, force = False):
+    log.status()
+    if (not force):
+        for ignore in runspace.ignore_patterns:
+            if (url.find(ignore) >= 0):
+                log.debug(f"!!! ignoring {url}")
+                return
+        idx = bisect.bisect_left(runspace.processed_urls, url)
+        if (idx != len(runspace.processed_urls) and runspace.processed_urls[idx] == url):
+            return
+    for item in runspace.save_patterns:
+        if (url.find(item) >= 0):
+            idx = bisect.bisect_left(runspace.pending_save_urls, url)
+            if (idx != len(runspace.pending_save_urls) and runspace.pending_save_urls[idx] == url):
+                return
+            runspace.pending_save_urls.insert(idx, url)
+            return
+    idx = bisect.bisect_left(runspace.pending_scrape_urls, url)
+    if (idx != len(runspace.pending_scrape_urls) and runspace.pending_scrape_urls[idx] == url):
+        return
+    runspace.pending_scrape_urls.insert(idx, url)
+    log.debug(f"+++ add to pending {url}")
+
+def process_content(url, contentType, content):
+    if (contentType == None):
+        log.warn(f"!!! missing content-type for: {url}")
+        return
+    if (contentType.find("text/html") < 0 and contentType.find("+xml") < 0 and contentType.find("/xml")):
+        # do not parse non-textual content, this does require the server to respond with correct content types
+        return
+    log.status()
+    mltree = BeautifulSoup(content, "lxml")
+    for element_info in runspace.include_elements:
+        log.status()
+        element_parts = element_info.split(":")
+        for ele in mltree.find_all(element_parts[0]):
+            value = ele.get(element_parts[1])
+            if (value == None or value.startswith("#")):
+                continue
+            if (not value.startswith('http')):
+                url_parsed = urlparse(url)
+                base_uri = f"{url_parsed.scheme}://{url_parsed.netloc}"
+                if (value.startswith('/')):
+                    value = f"{base_uri}{value}"
+                else:
+                    value = f"{base_uri}/{value}"
+            add_pending_url(value)
+
+def save(url):
+    bisect.insort_left(runspace.processed_urls, url)
+    runspace.pending_save_urls.remove(url)
     # if already exists, no reason to reprocess
     Path(runspace.save_directory).mkdir(parents=True, exist_ok=True)
     filepath = unquote(urlparse(url).path)
@@ -75,115 +128,54 @@ def try_save(url):
         filepath = f"{runspace.save_directory}/{filepath}"                
     if (os.path.isfile(filepath)):
         log.warn(f"### {filepath}")
-        return "skip", "skip"
-    should_save = runspace.save_all
-    log.status()
-    if (not should_save):
-        for item in runspace.save_urls:
-            if (url.find(item) >= 0):
-                should_save = True
-    if (should_save):
-        attempts_remaining = runspace.max_connection_errors
-        while (True):
-            attempts_remaining -= 1
-            try:
-                resp = requests.get(url)
-                break
-            except (Exception):
-                if (attempts_remaining <= 0):
-                    log.error(f"XXX failed: {url}")
-                    return None, None
-                else:
-                    log.warn(f"..ConnectionError; retrying in {runspace.retry_wait_seconds} seconds")
-                    time.sleep(runspace.retry_wait_seconds)
-        if (resp.status_code == 200):
-            contentType = resp.headers["Content-Type"]
-            content = resp.content
-            with open(filepath, "wb") as f:
-                f.write(content)
-                f.flush()
-            log.success(f"### {filepath}")
-            return contentType, content
-        else:
-            log.error(f"do_save('{url}') failed with status_code {resp.status_code}")
-    return None, None
-
-def add_to_pending(url, force = False):
-    if (not force):
-        log.status()
-        for ignore in runspace.ignore_urls:
-            if (url.find(ignore) >= 0):
-                log.debug(f"!!! ignoring {url}")
-                return
-        log.status()
-        for item in runspace.scraped_urls:
-            if (item == url):
-                return
-    log.status()
-    for item in runspace.pending_urls:
-        if (item == url):
-            return
-    log.status()
-    for item in runspace.save_urls:
-        if (url.find(item) >= 0):
-            runspace.pending_urls.insert(0, url)
-            return
-    log.debug(f"+++ add to pending {url}")
-    runspace.pending_urls.append(url)
-
-def scrape(url):
-    log.status()
-    runspace.scraped_urls.append(url)
-    runspace.pending_urls.remove(url)
-    contentType, content = try_save(url)
-    if (contentType == "skip" and content == "skip"):
         return
-    if (contentType == None or content == None):
-        attempts_remaining = runspace.max_connection_errors
-        while (True):
-            attempts_remaining -= 1
-            try:
-                resp = requests.get(url)
-                break
-            except (Exception):
-                if (attempts_remaining <= 0):
-                    log.error(f"XXX failed: {url}")
-                    return
-                else:
-                    log.warn(f"..ConnectionError; retrying in {runspace.retry_wait_seconds} seconds")
-                    time.sleep(runspace.retry_wait_seconds)
+    attempts_remaining = runspace.max_connection_errors
+    while (True):
+        attempts_remaining -= 1
+        try:
+            resp = requests.get(url)
+            break
+        except (Exception):
+            if (attempts_remaining <= 0):
+                log.error(f"XXX failed: {url}")
+                return
+            else:
+                log.warn(f"..ConnectionError; retrying in {runspace.retry_wait_seconds} seconds")
+                time.sleep(runspace.retry_wait_seconds)
+    if (resp.status_code == 200):
         contentType = resp.headers["Content-Type"]
         content = resp.content
-        if (contentType == None):
-            log.warn(f"!!! missing content-type for: {url}")
-            return
-    if (contentType.find("text/html") < 0 and contentType.find("+xml") < 0 and contentType.find("/xml")):
-        # do not parse non-textual content, this does require the server to respond with correct content types
-        return
-    log.ok(f">>> {url}")
-    log.status()
-    html = BeautifulSoup(resp.content, "lxml")
-    for element_info in runspace.include_elements:
-        element_parts = element_info.split(":")
-        for ele in html.find_all(element_parts[0]):
-            log.status()
-            value = ele.get(element_parts[1])
-            if (value == None):
-                continue
-            if (not value.startswith('http')):
-                url_parsed = urlparse(url)
-                base_uri = f"{url_parsed.scheme}://{url_parsed.netloc}"
-                if (value.startswith('/')):
-                    value = f"{base_uri}{value}"
-                elif (value.endswith('.html') or value.endswith('.htm')):
-                    value = f"{base_uri}/{value}"
-            if (not value.startswith('http')):
-                if (value.startswith("#")):
-                    log.debug(f"!!! scraped bad URL `{value}` from element `{element_info}` at `{url}`, discarded.")
-                else:
-                    log.warn(f"!!! scraped bad URL `{value}` from element `{element_info}` at `{url}`, discarded.")
+        with open(filepath, "wb") as f:
+            f.write(content)
+            f.flush()
+        log.success(f"### {filepath}")
+        process_content(url, contentType, content)
+    else:
+        log.error(f"!!! save('{url}') failed with status_code {resp.status_code}")
+
+def scrape(url):
+    bisect.insort_left(runspace.processed_urls, url)
+    runspace.pending_scrape_urls.remove(url)
+    attempts_remaining = runspace.max_connection_errors
+    while (True):
+        attempts_remaining -= 1
+        try:
+            resp = requests.get(url)
+            break
+        except (Exception):
+            if (attempts_remaining <= 0):
+                log.error(f"XXX failed: {url}")
+                return
             else:
-                add_to_pending(value)
+                log.warn(f"..ConnectionError; retrying in {runspace.retry_wait_seconds} seconds")
+                time.sleep(runspace.retry_wait_seconds)
+    if (resp.status_code == 200):
+        contentType = resp.headers["Content-Type"]
+        content = resp.content
+        log.ok(f">>> {url}")
+        process_content(url, contentType, content)
+    else:
+        log.error(f"!!! scrape('{url}') failed with status_code {resp.status_code}")
 
 def print_help():
     log.info("scrape-web v0.3.0\nCopyright (C) sw4k, MIT Licensed\n")
@@ -209,15 +201,15 @@ def print_settings(url):
     log.info("======================")
     if (runspace.save_all):
         log.info("Saving all content (using `--save-all`, are you using using `--preserve-paths`?)")
-    elif (len(runspace.save_urls) > 0):
+    elif (len(runspace.save_patterns) > 0):
         log.info("Saving content matching substrings:")
-        for item in runspace.save_urls:
+        for item in runspace.save_patterns:
             log.info(f"\t{item}")
     else:
         log.warn("Not Saving any content (use `--save` or `--save-all`)")
-    if (len(runspace.ignore_urls) > 0):
+    if (len(runspace.ignore_patterns) > 0):
         log.info("Ignoring URLS matching substrings:")
-        for item in runspace.ignore_urls:
+        for item in runspace.ignore_patterns:
             log.info(f"\t{item}")
     else:
         log.warn(f"Not ignoring any URLs {log.BLD}!BEWARE! you may crawl out of the target website!{log.END} (use `--verbose` and `--ignore`)")
@@ -263,7 +255,7 @@ def parse_commandline():
                 print_help()
                 log.error(f"ERR(2): missing required parameter for `--ignore <substring>`")
                 return 2
-            runspace.ignore_urls.append(args[argi])
+            runspace.ignore_patterns.append(args[argi])
         elif (arg == "--element"):
             argi += 1             
             if (argi >= argc):
@@ -282,7 +274,7 @@ def parse_commandline():
                 print_help()
                 log.error(f"ERR(2): missing required parameter for `--save <substring>`")
                 return 2
-            runspace.save_urls.append(args[argi])
+            runspace.save_patterns.append(args[argi])
         elif (arg == "--save-all"):
             runspace.save_all = True
         elif (arg == "--verbose"):
@@ -330,12 +322,19 @@ def run():
         sys.stdout.write(f"..starting in {i}..\r")        
         time.sleep(1)
     print("")
-    add_to_pending(url, True)
-    while (runspace.max_count > 0 and len(runspace.pending_urls) > 0):
-        runspace.max_count -= 1
-        if (runspace.max_count <= 0):
+    add_pending_url(url, True)
+    processed_count = 0
+    while (True):
+        processed_count += 1
+        if (runspace.max_count < processed_count):
             log.warn("!!! maximum number of scrapes performed, exiting.")
+            return
+        if (len(runspace.pending_save_urls) > 0):
+            save(runspace.pending_save_urls[0])
+        elif (len(runspace.pending_scrape_urls) > 0):
+            scrape(runspace.pending_scrape_urls[0])
         else:
-            scrape(runspace.pending_urls[0])
+            log.info(f"Done. Processed {processed_count} URLs.")
+            return
 
 run()
