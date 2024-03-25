@@ -17,6 +17,7 @@ from urllib.parse import urlparse, unquote
 from bs4 import BeautifulSoup
 
 class runspace:
+    restrict_patterns = []
     ignore_patterns = []
     save_patterns = []
     include_elements = ["a:href"]
@@ -68,6 +69,16 @@ class log:
 def add_pending_url(url, force = False):
     log.status()
     if (not force):
+        if (len(runspace.restrict_patterns) > 0):
+            url_parsed = urlparse(url)
+            allow_url = False
+            for pattern in runspace.restrict_patterns:
+                if (url_parsed.netloc.find(pattern) >= 0):
+                    allow_url = True
+                    break
+            if (not allow_url):
+                log.debug(f"!!! restricting {url} [{url_parsed.netloc}] [{allow_url}]")
+                return
         for ignore in runspace.ignore_patterns:
             if (url.find(ignore) >= 0):
                 log.debug(f"!!! ignoring {url}")
@@ -95,7 +106,6 @@ def process_content(url, contentType, content):
     if (contentType.find("text/html") < 0 and contentType.find("+xml") < 0 and contentType.find("/xml")):
         # do not parse non-textual content, this does require the server to respond with correct content types
         return
-    log.status()
     mltree = BeautifulSoup(content, "lxml")
     for element_info in runspace.include_elements:
         log.status()
@@ -107,7 +117,9 @@ def process_content(url, contentType, content):
             if (not value.startswith('http')):
                 url_parsed = urlparse(url)
                 base_uri = f"{url_parsed.scheme}://{url_parsed.netloc}"
-                if (value.startswith('/')):
+                if (value.startswith('//')):
+                    value = f"{url_parsed.scheme}:{value}"
+                elif (value.startswith('/') or value.startswith('?')):
                     value = f"{base_uri}{value}"
                 else:
                     value = f"{base_uri}/{value}"
@@ -129,6 +141,7 @@ def save(url):
     if (os.path.isfile(filepath)):
         log.warn(f"### {filepath}")
         return
+    log.status(f"{filepath}\r")
     attempts_remaining = runspace.max_connection_errors
     while (True):
         attempts_remaining -= 1
@@ -154,6 +167,7 @@ def save(url):
         log.error(f"!!! save('{url}') failed with status_code {resp.status_code}")
 
 def scrape(url):
+    log.ok(f">>> {url}")
     bisect.insort_left(runspace.processed_urls, url)
     runspace.pending_scrape_urls.remove(url)
     attempts_remaining = runspace.max_connection_errors
@@ -172,7 +186,6 @@ def scrape(url):
     if (resp.status_code == 200):
         contentType = resp.headers["Content-Type"]
         content = resp.content
-        log.ok(f">>> {url}")
         process_content(url, contentType, content)
     else:
         log.error(f"!!! scrape('{url}') failed with status_code {resp.status_code}")
@@ -185,6 +198,7 @@ def print_help():
     log.info("\t--verbose\n\t\tIndicates that verbose/debug logging should be enabled.")
     log.info("\t--no-status\n\t\tDisable status messages, useful if processing stdout with another tool.")
     log.info("\t--max-count <number>\n\t\tSet a max count of scrapes to be performed.")
+    log.info("\t--restrict <hostname>\n\t\t*MULTI* When scraping URLs, if the host-part does not match this string the URL will be ignored/skipped.")
     log.info("\t--ignore <substring>\n\t\t*MULTI* When scraping URLs, if this substring matches a URL the URL will be ignored/skipped.")
     log.info("\t--save <substring>\n\t\t*MULTI* When scraping URLs, if this substring matches the URL the content found at the URL will be downloaded and saved locally. ")
     log.info("\t--save-all\n\t\tIndicates that all content scraped should be saved. This may still require the use of `--element` and `--preserve-paths` to exhibit the expected results.")
@@ -207,6 +221,12 @@ def print_settings(url):
             log.info(f"\t{item}")
     else:
         log.warn("Not Saving any content (use `--save` or `--save-all`)")
+    if (len(runspace.restrict_patterns) > 0):
+        log.info("Restricting to URLS matching substrings:")
+        for item in runspace.restrict_patterns:
+            log.info(f"\t{item}")
+    else:
+        log.warn(f"Not ignoring any URLs {log.BLD}!BEWARE! you may crawl out of the target website!{log.END} (use `--verbose` and `--ignore`)")
     if (len(runspace.ignore_patterns) > 0):
         log.info("Ignoring URLS matching substrings:")
         for item in runspace.ignore_patterns:
@@ -249,6 +269,13 @@ def parse_commandline():
                 log.error(f"ERR(2): missing required parameter for `--max-count <number>`")
                 return 2
             runspace.max_count = int(args[argi])
+        elif (arg == "--restrict"):
+            argi += 1
+            if (argi >= argc):
+                print_help()
+                log.error(f"ERR(2): missing required parameter for `--restrict <substring>`")
+                return 2
+            runspace.restrict_patterns.append(args[argi])
         elif (arg == "--ignore"):
             argi += 1
             if (argi >= argc):
@@ -325,6 +352,7 @@ def run():
     add_pending_url(url, True)
     processed_count = 0
     while (True):
+        log.status()
         processed_count += 1
         if (runspace.max_count < processed_count):
             log.warn("!!! maximum number of scrapes performed, exiting.")

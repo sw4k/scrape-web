@@ -23,6 +23,8 @@ Options:
                 Sets the number of seconds to wait when there is a connection error before a retry attempt is made. The default is 5.
         --max-count <number>
                 Set a max count of scrapes to be performed.
+        --restrict <hostname>
+                *MULTI* When scraping URLs, if the host-part does not match this string the URL will be ignored/skipped.
         --ignore <substring>
                 *MULTI* When scraping URLs, if this substring matches a URL the URL will be ignored/skipped.
         --save <substring>
